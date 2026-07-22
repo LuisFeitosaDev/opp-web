@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Camera, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
-import { useDominios } from '@/services/dominios';
+import { GRUPO_GERAL, useCombos, useGrupos, useGruposPlanejamento } from '@/services/combos';
 import { uploadFicha, otimizarUrl } from '@/lib/cloudinary';
 import { Button } from '@/components/ui/button';
 import { Input, Select, Textarea } from '@/components/ui/input';
@@ -95,7 +95,9 @@ export function EdicaoDemanda({
   onFechar: (salvou: boolean) => void;
 }) {
   const { registraLog } = useAuth();
-  const { opcoes } = useDominios();
+  const { data: grupos } = useGrupos();
+  const { opcoes } = useCombos();
+  const { opcoesGP } = useGruposPlanejamento();
   const novo = cdDemanda === 0;
   const [form, setForm] = useState<Partial<Demanda>>({ lente_antecipada: false, status: 'ATIVO' });
   const [enviandoFoto, setEnviandoFoto] = useState(false);
@@ -136,6 +138,25 @@ export function EdicaoDemanda({
   }, [demanda]);
 
   const set = (campo: keyof Demanda, valor: unknown) => setForm((f) => ({ ...f, [campo]: valor }));
+
+  // Cascata pelo grupo (reflexo do SysPlan): subgrupo/atributos filtram pelo
+  // cd_grupo do grupo escolhido; combos gerais usam GRUPO_GERAL.
+  const cdGrupo = useMemo(
+    () => grupos?.find((g) => g.dc_grupo === form.grupo)?.cd_grupo ?? GRUPO_GERAL,
+    [grupos, form.grupo],
+  );
+
+  // Grupo planejamento cascateado por grupo/subgrupo/sexo; com opção única,
+  // preenche sozinho (mesma regra do SysPlan)
+  const opcoesGrupoPlan = useMemo(
+    () => opcoesGP(form.grupo, form.subgrupo, form.sexo),
+    [opcoesGP, form.grupo, form.subgrupo, form.sexo],
+  );
+  useEffect(() => {
+    if (opcoesGrupoPlan.length === 1 && form.grupo_planejamento !== opcoesGrupoPlan[0]) {
+      set('grupo_planejamento', opcoesGrupoPlan[0]);
+    }
+  }, [opcoesGrupoPlan]);
 
   const salvar = useMutation({
     mutationFn: async () => {
@@ -179,14 +200,14 @@ export function EdicaoDemanda({
     }
   };
 
-  const Combo = ({ campo, label, tipo }: { campo: keyof Demanda; label: string; tipo: string }) => (
+  const Combo = ({ campo, label, tipo, grupoCombo }: { campo: keyof Demanda; label: string; tipo: string; grupoCombo?: number }) => (
     <CampoLinha label={label}>
       <Select
         className={CTRL}
         value={(form[campo] as string) ?? ''}
         onChange={(e) => set(campo, e.target.value)}
         placeholder=""
-        options={opcoes(tipo)}
+        options={opcoes(tipo, grupoCombo ?? GRUPO_GERAL)}
       />
     </CampoLinha>
   );
@@ -244,10 +265,32 @@ export function EdicaoDemanda({
                   <Bloco titulo="Classificação" cor="ambar">
                     {Combo({ campo: 'canal', label: 'Canal', tipo: 'CANAL' })}
                     {Combo({ campo: 'griffe', label: 'Griffe', tipo: 'GRIFFE' })}
-                    {Combo({ campo: 'grupo', label: 'Grupo', tipo: 'GRUPO' })}
-                    {Combo({ campo: 'subgrupo', label: 'Subgrupo', tipo: 'SUBGRUPO' })}
+                    <CampoLinha label="Grupo">
+                      <Select
+                        className={CTRL}
+                        value={form.grupo ?? ''}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            grupo: e.target.value,
+                            subgrupo: '', atributo_1: '', atributo_2: '', grupo_planejamento: '',
+                          }))
+                        }
+                        placeholder=""
+                        options={(grupos ?? []).map((g) => g.dc_grupo)}
+                      />
+                    </CampoLinha>
+                    {Combo({ campo: 'subgrupo', label: 'Subgrupo', tipo: 'SUB GRUPO', grupoCombo: cdGrupo })}
                     {Combo({ campo: 'fornecedor', label: 'Fornecedor', tipo: 'FORNECEDOR' })}
-                    {Combo({ campo: 'grupo_planejamento', label: 'Grupo Plan.', tipo: 'GRUPO_PLANEJAMENTO' })}
+                    <CampoLinha label="Grupo Plan.">
+                      <Select
+                        className={CTRL}
+                        value={form.grupo_planejamento ?? ''}
+                        onChange={(e) => set('grupo_planejamento', e.target.value)}
+                        placeholder=""
+                        options={opcoesGrupoPlan}
+                      />
+                    </CampoLinha>
                     {Combo({ campo: 'sexo', label: 'Sexo', tipo: 'SEXO' })}
                     <CampoLinha label="Status">
                       <Select
@@ -262,8 +305,8 @@ export function EdicaoDemanda({
 
                 <div className="space-y-2">
                   <Bloco titulo="Atributos" cor="ciano">
-                    {Combo({ campo: 'atributo_1', label: 'Atributo 1', tipo: 'ATRIBUTO_1' })}
-                    {Combo({ campo: 'atributo_2', label: 'Atributo 2', tipo: 'ATRIBUTO_2' })}
+                    {Combo({ campo: 'atributo_1', label: 'Atributo 1', tipo: 'ATRIBUTO 1', grupoCombo: cdGrupo })}
+                    {Combo({ campo: 'atributo_2', label: 'Atributo 2', tipo: 'ATRIBUTO 2', grupoCombo: cdGrupo })}
                     <CampoLinha label="Preço Varejo">
                       <Input
                         className={CTRL}

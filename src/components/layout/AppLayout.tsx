@@ -43,7 +43,7 @@ const MENUS: { grupo: string; itens: ItemMenu[] }[] = [
     itens: [
       { para: '/admin/usuarios', tela: 'admin_usuarios', nome: 'Usuários', icone: Users },
       { para: '/admin/permissoes', tela: 'admin_permissoes', nome: 'Permissões', icone: ShieldCheck },
-      { para: '/admin/parametros', tela: 'admin_parametros', nome: 'Parâmetros (Domínios)', icone: Settings2 },
+      { para: '/admin/parametros', tela: 'admin_parametros', nome: 'Parâmetros (SysPlan)', icone: Settings2 },
       { para: '/admin/logs', tela: 'admin_logs', nome: 'Logs', icone: ScrollText },
     ],
   },

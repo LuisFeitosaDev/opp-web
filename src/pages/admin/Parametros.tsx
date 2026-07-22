@@ -1,192 +1,132 @@
-import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Save, Trash2 } from 'lucide-react';
-import { toast } from 'sonner';
-import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/context/AuthContext';
+import { useMemo, useState } from 'react';
+import { Info } from 'lucide-react';
 import { DataTable, type Coluna } from '@/components/DataTable';
-import { Button } from '@/components/ui/button';
-import { Input, Label, Select } from '@/components/ui/input';
+import { Label, Select } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { confirmar } from '@/components/ui/confirm';
-import { Badge } from '@/components/ui/misc';
-import { TIPOS_DOMINIO, type Dominio } from '@/types';
+import { Badge, Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/misc';
+import { useCombos, useGrupos, useGruposPlanejamento } from '@/services/combos';
+import type { Combo, GrupoPlanejamento } from '@/types';
 
 /**
- * Parâmetros do OPP: manutenção dos domínios (valores dos combos de
- * classificação — canal, griffe, grupo, fornecedor etc.).
+ * Parâmetros do OPP — visualização dos PRMs espelhados do SysPlan Web.
+ * Toda manutenção (incluir/alterar/excluir combos, grupos e grupo
+ * planejamento) é feita EXCLUSIVAMENTE no SysPlan; o OPP apenas consome.
+ * A atualização do espelho é feita com `npm run sync:prm`.
  */
 export default function AdminParametros() {
-  const { registraLog } = useAuth();
-  const qc = useQueryClient();
+  const { data: grupos } = useGrupos();
+  const { data: combos, isLoading: carregandoCombos } = useCombos();
+  const { data: gruposPlan, isLoading: carregandoGP } = useGruposPlanejamento();
+
   const [fTipo, setFTipo] = useState('');
-  const [edicao, setEdicao] = useState<Partial<Dominio> | null>(null);
+  const [fGrupo, setFGrupo] = useState('');
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['dominios_admin'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('dominios')
-        .select('*')
-        .order('tipo')
-        .order('ordem')
-        .order('valor');
-      if (error) throw error;
-      return data as Dominio[];
-    },
-  });
+  const nomeGrupo = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const g of grupos ?? []) m.set(g.cd_grupo, g.dc_grupo);
+    return m;
+  }, [grupos]);
 
-  const filtrados = (data ?? []).filter((d) => !fTipo || d.tipo === fTipo);
+  const tipos = useMemo(
+    () => [...new Set((combos ?? []).map((c) => c.dc_tipo_combo))].sort((a, b) => a.localeCompare(b, 'pt-BR')),
+    [combos],
+  );
 
-  const salvar = useMutation({
-    mutationFn: async () => {
-      if (!edicao?.tipo || !edicao.valor?.trim()) throw new Error('Informe o tipo e o valor.');
-      const payload = {
-        tipo: edicao.tipo,
-        valor: edicao.valor.trim().toUpperCase(),
-        ordem: edicao.ordem ?? 0,
-        ativo: edicao.ativo ?? true,
-      };
-      if (edicao.cd_dominio) {
-        const { error } = await supabase.from('dominios').update(payload).eq('cd_dominio', edicao.cd_dominio);
-        if (error) throw error;
-        registraLog('Admin - Alteracao Dominio', edicao.cd_dominio, '', `${payload.tipo}: ${payload.valor}`);
-      } else {
-        const { error } = await supabase.from('dominios').insert(payload);
-        if (error) throw error;
-        registraLog('Admin - Criacao Dominio', 0, '', `${payload.tipo}: ${payload.valor}`);
-      }
-    },
-    onSuccess: () => {
-      toast.success('Domínio salvo.');
-      setEdicao(null);
-      qc.invalidateQueries({ queryKey: ['dominios_admin'] });
-      qc.invalidateQueries({ queryKey: ['dominios'] });
-    },
-    onError: (e: any) => toast.error(e.message ?? String(e)),
-  });
+  const combosFiltrados = (combos ?? []).filter(
+    (c) =>
+      (!fTipo || c.dc_tipo_combo === fTipo) &&
+      (!fGrupo || String(c.cd_grupo) === fGrupo),
+  );
 
-  const excluir = useMutation({
-    mutationFn: async (d: Dominio) => {
-      // Desativa em vez de excluir: valores antigos continuam válidos nas demandas
-      const { error } = await supabase.from('dominios').update({ ativo: !d.ativo }).eq('cd_dominio', d.cd_dominio);
-      if (error) throw error;
-      registraLog(d.ativo ? 'Admin - Desativacao Dominio' : 'Admin - Reativacao Dominio', d.cd_dominio, '', `${d.tipo}: ${d.valor}`);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['dominios_admin'] });
-      qc.invalidateQueries({ queryKey: ['dominios'] });
-    },
-    onError: (e: any) => toast.error(e.message ?? String(e)),
-  });
-
-  const colunas: Coluna<Dominio>[] = [
-    { key: 'cd_dominio', titulo: 'CD' },
-    { key: 'tipo', titulo: 'Tipo' },
-    { key: 'valor', titulo: 'Valor', className: 'font-semibold' },
-    { key: 'ordem', titulo: 'Ordem' },
+  const colunasCombos: Coluna<Combo>[] = [
+    { key: 'cd_combo', titulo: 'CD' },
+    { key: 'dc_tipo_combo', titulo: 'Tipo' },
     {
-      key: 'ativo',
-      titulo: 'Situação',
-      render: (d) => (d.ativo ? <Badge variant="success">Ativo</Badge> : <Badge variant="secondary">Inativo</Badge>),
-      valor: (d) => (d.ativo ? 'Ativo' : 'Inativo'),
+      key: 'cd_grupo',
+      titulo: 'Grupo',
+      render: (c) => nomeGrupo.get(c.cd_grupo) ?? c.cd_grupo,
+      valor: (c) => nomeGrupo.get(c.cd_grupo) ?? String(c.cd_grupo),
     },
-    {
-      key: '__acoes',
-      titulo: 'Ações',
-      ordenavel: false,
-      render: (d) => (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 text-destructive"
-          title={d.ativo ? 'Desativar' : 'Reativar'}
-          onClick={async (e) => {
-            e.stopPropagation();
-            if (
-              await confirmar({
-                titulo: d.ativo ? 'Desativar valor' : 'Reativar valor',
-                mensagem: `${d.tipo}: ${d.valor}`,
-                textoConfirmar: d.ativo ? 'Desativar' : 'Reativar',
-                variante: d.ativo ? 'destructive' : 'default',
-              })
-            )
-              excluir.mutate(d);
-          }}
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </Button>
-      ),
-    },
+    { key: 'dc_combo', titulo: 'Valor', className: 'font-semibold' },
+  ];
+
+  const colunasGP: Coluna<GrupoPlanejamento>[] = [
+    { key: 'dc_grupo', titulo: 'Grupo' },
+    { key: 'dc_subgrupo', titulo: 'Subgrupo' },
+    { key: 'dc_sexo', titulo: 'Sexo' },
+    { key: 'dc_formato', titulo: 'Formato' },
+    { key: 'dc_grupo_planejamento', titulo: 'Grupo Planejamento', className: 'font-semibold' },
   ];
 
   return (
     <div className="space-y-4">
-      <div className="flex items-end justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Parâmetros (Domínios)</h1>
-          <p className="text-sm text-muted-foreground">Valores dos combos de classificação das demandas</p>
-        </div>
-        <Button onClick={() => setEdicao({ tipo: fTipo || TIPOS_DOMINIO[0], ativo: true, ordem: 0 })}>
-          <Plus /> Novo valor
-        </Button>
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">Parâmetros (SysPlan)</h1>
+        <p className="text-sm text-muted-foreground">Combos e grupos usados nas demandas — reflexo do SysPlan Web</p>
       </div>
 
-      <Card>
-        <CardContent className="flex flex-wrap items-end gap-3 p-3">
-          <div className="w-56">
-            <Label>Tipo</Label>
-            <Select value={fTipo} onChange={(e) => setFTipo(e.target.value)} placeholder="Todos" options={[...TIPOS_DOMINIO]} />
-          </div>
-        </CardContent>
-      </Card>
+      <div className="flex items-start gap-2 rounded-md border border-primary/40 bg-primary/5 p-3 text-sm">
+        <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+        <span>
+          Estes valores são um <b>espelho somente leitura</b> dos PRMs do SysPlan Web. Inclusões,
+          alterações e exclusões são feitas <b>exclusivamente no SysPlan</b> (Administração →
+          Parâmetros de lá); depois, atualize o espelho com <code className="rounded bg-muted px-1">npm run sync:prm</code>.
+        </span>
+      </div>
 
-      <DataTable
-        colunas={colunas}
-        dados={filtrados}
-        carregando={isLoading}
-        rowKey={(d) => d.cd_dominio}
-        onRowDoubleClick={(d) => setEdicao({ ...d })}
-        paginacao={50}
-      />
+      <Tabs defaultValue="combos">
+        <TabsList>
+          <TabsTrigger value="combos">Combos ({(combos ?? []).length})</TabsTrigger>
+          <TabsTrigger value="grupos">Grupos ({(grupos ?? []).length})</TabsTrigger>
+          <TabsTrigger value="gp">Grupo Planejamento ({(gruposPlan ?? []).length})</TabsTrigger>
+        </TabsList>
 
-      {edicao && (
-        <Dialog open onOpenChange={(o) => !o && setEdicao(null)}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>{edicao.cd_dominio ? 'Editar valor' : 'Novo valor'}</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-3">
-              <div>
+        <TabsContent value="combos">
+          <Card className="mb-3">
+            <CardContent className="flex flex-wrap items-end gap-3 p-3">
+              <div className="w-56">
                 <Label>Tipo</Label>
-                <Select
-                  value={edicao.tipo ?? ''}
-                  onChange={(e) => setEdicao({ ...edicao, tipo: e.target.value })}
-                  options={[...TIPOS_DOMINIO]}
-                  disabled={!!edicao.cd_dominio}
-                />
+                <Select value={fTipo} onChange={(e) => setFTipo(e.target.value)} placeholder="Todos" options={tipos} />
               </div>
-              <div>
-                <Label>Valor</Label>
-                <Input value={edicao.valor ?? ''} onChange={(e) => setEdicao({ ...edicao, valor: e.target.value })} />
+              <div className="w-56">
+                <Label>Grupo</Label>
+                <Select value={fGrupo} onChange={(e) => setFGrupo(e.target.value)} placeholder="Todos">
+                  {(grupos ?? []).map((g) => (
+                    <option key={g.cd_grupo} value={g.cd_grupo}>{g.dc_grupo}</option>
+                  ))}
+                </Select>
               </div>
-              <div>
-                <Label>Ordem</Label>
-                <Input
-                  type="number"
-                  value={edicao.ordem ?? 0}
-                  onChange={(e) => setEdicao({ ...edicao, ordem: Number(e.target.value) })}
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setEdicao(null)}>Cancelar</Button>
-              <Button loading={salvar.isPending} onClick={() => salvar.mutate()}><Save /> Salvar</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      )}
+            </CardContent>
+          </Card>
+          <DataTable
+            colunas={colunasCombos}
+            dados={combosFiltrados}
+            carregando={carregandoCombos}
+            rowKey={(c) => c.cd_combo}
+            paginacao={100}
+          />
+        </TabsContent>
+
+        <TabsContent value="grupos">
+          <div className="flex flex-wrap gap-2">
+            {(grupos ?? []).map((g) => (
+              <Badge key={g.cd_grupo} variant="secondary" className="text-sm">
+                {g.cd_grupo} · {g.dc_grupo}
+              </Badge>
+            ))}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="gp">
+          <DataTable
+            colunas={colunasGP}
+            dados={gruposPlan ?? []}
+            carregando={carregandoGP}
+            rowKey={(g) => `${g.dc_grupo}|${g.dc_subgrupo}|${g.dc_sexo}|${g.dc_formato}`}
+            paginacao={100}
+          />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

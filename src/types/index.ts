@@ -37,12 +37,25 @@ export interface LogTransacao {
   campo_editado: string | null;
 }
 
-export interface Dominio {
-  cd_dominio: number;
-  tipo: string;
-  valor: string;
-  ordem: number;
-  ativo: boolean;
+/** Espelhos dos PRMs do SysPlan (somente leitura no OPP) */
+export interface GrupoProduto {
+  cd_grupo: number;
+  dc_grupo: string;
+}
+
+export interface Combo {
+  cd_combo: number;
+  cd_grupo: number;
+  dc_tipo_combo: string;
+  dc_combo: string;
+}
+
+export interface GrupoPlanejamento {
+  dc_grupo: string;
+  dc_subgrupo: string;
+  dc_sexo: string;
+  dc_formato: string;
+  dc_grupo_planejamento: string | null;
 }
 
 export type StatusDemanda = 'ATIVO' | 'ENCERRADO' | 'CANCELADO' | 'EXCLUIDO';
@@ -158,8 +171,3 @@ export interface Demanda {
   atualizado_em: string;
 }
 
-/** Tipos de domínio (combos) do OPP */
-export const TIPOS_DOMINIO = [
-  'CANAL', 'GRIFFE', 'GRUPO', 'SUBGRUPO', 'FORNECEDOR',
-  'GRUPO_PLANEJAMENTO', 'ATRIBUTO_1', 'ATRIBUTO_2', 'SEXO',
-] as const;

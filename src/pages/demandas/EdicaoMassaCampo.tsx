@@ -4,21 +4,26 @@ import { PencilRuler, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
-import { useDominios } from '@/services/dominios';
+import { GRUPO_GERAL, useCombos, useGrupos, useGruposPlanejamento } from '@/services/combos';
 import { Button } from '@/components/ui/button';
 import { confirmar } from '@/components/ui/confirm';
 import { Input, Label, Select } from '@/components/ui/input';
 
 /**
  * Edição em massa direto na lista: seleciona as linhas, escolhe o campo e o
- * novo valor. Cada alteração é auditada campo a campo pelo trigger do banco.
+ * novo valor. Os combos são o reflexo do SysPlan; campos que dependem do
+ * grupo (subgrupo, atributos, grupo planejamento) só ficam disponíveis
+ * quando todas as linhas selecionadas são do mesmo grupo.
+ * Cada alteração é auditada campo a campo pelo trigger do banco.
  */
 interface CampoMassa {
   campo: string;
   label: string;
-  tipo: 'texto' | 'numero' | 'data' | 'combo' | 'simnao';
-  /** Tipo do domínio quando tipo = 'combo' (ex.: 'CANAL') */
+  tipo: 'texto' | 'numero' | 'data' | 'combo' | 'simnao' | 'grupoplan';
+  /** Tipo do combo no prm_combos (ex.: 'CANAL', 'SUB GRUPO') */
   comboTipo?: string;
+  /** Combo filtrado pelo grupo das linhas selecionadas (exige grupo único) */
+  porGrupo?: boolean;
   /** Opções fixas (ex.: status) */
   opcoesFixas?: string[];
 }
@@ -26,13 +31,12 @@ interface CampoMassa {
 const CAMPOS: CampoMassa[] = [
   { campo: 'canal', label: 'Canal', tipo: 'combo', comboTipo: 'CANAL' },
   { campo: 'griffe', label: 'Griffe', tipo: 'combo', comboTipo: 'GRIFFE' },
-  { campo: 'grupo', label: 'Grupo', tipo: 'combo', comboTipo: 'GRUPO' },
-  { campo: 'subgrupo', label: 'Subgrupo', tipo: 'combo', comboTipo: 'SUBGRUPO' },
+  { campo: 'subgrupo', label: 'Subgrupo', tipo: 'combo', comboTipo: 'SUB GRUPO', porGrupo: true },
   { campo: 'fornecedor', label: 'Fornecedor', tipo: 'combo', comboTipo: 'FORNECEDOR' },
-  { campo: 'grupo_planejamento', label: 'Grupo Planejamento', tipo: 'combo', comboTipo: 'GRUPO_PLANEJAMENTO' },
+  { campo: 'grupo_planejamento', label: 'Grupo Planejamento', tipo: 'grupoplan' },
   { campo: 'sexo', label: 'Sexo', tipo: 'combo', comboTipo: 'SEXO' },
-  { campo: 'atributo_1', label: 'Atributo 1', tipo: 'combo', comboTipo: 'ATRIBUTO_1' },
-  { campo: 'atributo_2', label: 'Atributo 2', tipo: 'combo', comboTipo: 'ATRIBUTO_2' },
+  { campo: 'atributo_1', label: 'Atributo 1', tipo: 'combo', comboTipo: 'ATRIBUTO 1', porGrupo: true },
+  { campo: 'atributo_2', label: 'Atributo 2', tipo: 'combo', comboTipo: 'ATRIBUTO 2', porGrupo: true },
   { campo: 'preco_varejo', label: 'Preço Varejo', tipo: 'numero' },
   { campo: 'lente_antecipada', label: 'Lente Antecipada', tipo: 'simnao' },
   { campo: 'cod_1', label: '1º Código', tipo: 'texto' },
@@ -66,24 +70,46 @@ const CAMPOS: CampoMassa[] = [
 
 export function EdicaoMassaCampo({
   selecionadas,
+  grupos,
   onAplicado,
   onLimparSelecao,
 }: {
   selecionadas: Set<number>;
+  /** Grupos distintos das linhas selecionadas (para os combos cascateados) */
+  grupos: string[];
   onAplicado: () => void;
   onLimparSelecao: () => void;
 }) {
   const { registraLog } = useAuth();
-  const { opcoes } = useDominios();
+  const { opcoes } = useCombos();
+  const { data: gruposPrm } = useGrupos();
+  const { opcoesGP } = useGruposPlanejamento();
   const [campo, setCampo] = useState(CAMPOS[0].campo);
   const [valor, setValor] = useState('');
 
-  const def = useMemo(() => CAMPOS.find((c) => c.campo === campo) ?? CAMPOS[0], [campo]);
+  const grupoUnico = grupos.length === 1 ? grupos[0] : null;
+  const cdGrupoUnico = useMemo(
+    () => gruposPrm?.find((g) => g.dc_grupo === grupoUnico)?.cd_grupo ?? GRUPO_GERAL,
+    [gruposPrm, grupoUnico],
+  );
+
+  // Campos cascateados por grupo só entram com grupo único na seleção
+  const camposDisponiveis = useMemo(
+    () => CAMPOS.filter((c) => !c.porGrupo || grupoUnico),
+    [grupoUnico],
+  );
+
+  const def = useMemo(
+    () => camposDisponiveis.find((c) => c.campo === campo) ?? camposDisponiveis[0],
+    [camposDisponiveis, campo],
+  );
 
   const opcoesCombo = useMemo(() => {
+    if (def.tipo === 'grupoplan') return opcoesGP(grupoUnico);
     if (def.tipo !== 'combo') return [];
-    return def.opcoesFixas ?? opcoes(def.comboTipo!);
-  }, [def, opcoes]);
+    if (def.opcoesFixas) return def.opcoesFixas;
+    return opcoes(def.comboTipo!, def.porGrupo ? cdGrupoUnico : GRUPO_GERAL);
+  }, [def, opcoes, opcoesGP, grupoUnico, cdGrupoUnico]);
 
   const aplicar = useMutation({
     mutationFn: async () => {
@@ -95,9 +121,7 @@ export function EdicaoMassaCampo({
           ? Number(valor) || 0
           : def.tipo === 'simnao'
             ? valor === 'SIM'
-            : def.tipo === 'data'
-              ? valor || null
-              : valor || null;
+            : valor || null;
       const { error } = await supabase
         .from('demandas')
         .update({ [campo]: novoValor })
@@ -117,7 +141,8 @@ export function EdicaoMassaCampo({
     <div className="ml-auto flex flex-wrap items-end gap-2 rounded-md border border-primary/40 bg-primary/5 p-2">
       <div>
         <Label className="flex items-center gap-1">
-          <PencilRuler className="h-3 w-3" /> Edição em massa ({selecionadas.size} linhas)
+          <PencilRuler className="h-3 w-3" /> Edição em massa ({selecionadas.size} linhas
+          {grupoUnico ? ` · ${grupoUnico}` : ` · ${grupos.length} grupos`})
         </Label>
         <div className="flex gap-2">
           <Select
@@ -128,11 +153,11 @@ export function EdicaoMassaCampo({
               setValor('');
             }}
           >
-            {CAMPOS.map((c) => (
+            {camposDisponiveis.map((c) => (
               <option key={c.campo} value={c.campo}>{c.label}</option>
             ))}
           </Select>
-          {def.tipo === 'combo' ? (
+          {def.tipo === 'combo' || def.tipo === 'grupoplan' ? (
             <Select className="w-48" value={valor} onChange={(e) => setValor(e.target.value)} placeholder="" options={opcoesCombo} />
           ) : def.tipo === 'simnao' ? (
             <Select className="w-48" value={valor} onChange={(e) => setValor(e.target.value)} placeholder="" options={['SIM', 'NAO']} />

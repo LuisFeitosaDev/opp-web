@@ -4,7 +4,7 @@ import { FileSpreadsheet, FileText, Layers, Plus, RefreshCw, Trash2 } from 'luci
 import { toast } from 'sonner';
 import { supabase, fetchAll } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
-import { useDominios } from '@/services/dominios';
+import { useCombos, useGrupos } from '@/services/combos';
 import { DataTable, type Coluna } from '@/components/DataTable';
 import { Button } from '@/components/ui/button';
 import { Label, Select } from '@/components/ui/input';
@@ -24,7 +24,8 @@ export default function ListaDemandas() {
   const { podeEditar, registraLog } = useAuth();
   const qc = useQueryClient();
   const editavel = podeEditar('lista_demandas');
-  const { opcoes } = useDominios();
+  const { opcoesTodas } = useCombos();
+  const { data: gruposPrm } = useGrupos();
 
   // Filtros rápidos
   const [fStatus, setFStatus] = useState('ATIVO');
@@ -61,6 +62,17 @@ export default function ListaDemandas() {
         return q;
       }),
   });
+
+  // Grupos distintos das linhas selecionadas (combos cascateados na edição em massa)
+  const gruposSelecionados = useMemo(
+    () =>
+      [...new Set(
+        (demandas ?? [])
+          .filter((d) => selecionadas.has(d.cd_demanda))
+          .map((d) => d.grupo ?? ''),
+      )],
+    [demandas, selecionadas],
+  );
 
   const filtrados = useMemo(() => {
     let r = demandas ?? [];
@@ -215,6 +227,7 @@ export default function ListaDemandas() {
           {selecionadas.size >= 2 && editavel && (
             <EdicaoMassaCampo
               selecionadas={selecionadas}
+              grupos={gruposSelecionados}
               onLimparSelecao={() => setSelecionadas(new Set())}
               onAplicado={() => {
                 setSelecionadas(new Set());
@@ -270,23 +283,24 @@ export default function ListaDemandas() {
         </div>
         <div className="w-40">
           <Label>Canal</Label>
-          <Select value={fCanal} onChange={(e) => setFCanal(e.target.value)} placeholder="Todos" options={opcoes('CANAL')} />
+          <Select value={fCanal} onChange={(e) => setFCanal(e.target.value)} placeholder="Todos" options={opcoesTodas('CANAL')} />
         </div>
         <div className="w-44">
           <Label>Griffe</Label>
-          <Select value={fGriffe} onChange={(e) => setFGriffe(e.target.value)} placeholder="Todas" options={opcoes('GRIFFE')} />
+          <Select value={fGriffe} onChange={(e) => setFGriffe(e.target.value)} placeholder="Todas" options={opcoesTodas('GRIFFE')} />
         </div>
         <div className="w-40">
           <Label>Grupo</Label>
-          <Select value={fGrupo} onChange={(e) => setFGrupo(e.target.value)} placeholder="Todos" options={opcoes('GRUPO')} />
+          <Select value={fGrupo} onChange={(e) => { setFGrupo(e.target.value); setFSubgrupo(''); }} placeholder="Todos"
+            options={(gruposPrm ?? []).map((g) => g.dc_grupo)} />
         </div>
         <div className="w-40">
           <Label>Subgrupo</Label>
-          <Select value={fSubgrupo} onChange={(e) => setFSubgrupo(e.target.value)} placeholder="Todos" options={opcoes('SUBGRUPO')} />
+          <Select value={fSubgrupo} onChange={(e) => setFSubgrupo(e.target.value)} placeholder="Todos" options={opcoesTodas('SUB GRUPO')} />
         </div>
         <div className="w-44">
           <Label>Fornecedor</Label>
-          <Select value={fFornecedor} onChange={(e) => setFFornecedor(e.target.value)} placeholder="Todos" options={opcoes('FORNECEDOR')} />
+          <Select value={fFornecedor} onChange={(e) => setFFornecedor(e.target.value)} placeholder="Todos" options={opcoesTodas('FORNECEDOR')} />
         </div>
         <div className="w-44">
           <Label>Etapa</Label>

@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "sync:dominios": "node scripts/sync-dominios.mjs"
+    "sync:prm": "node scripts/sync-prm.mjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.6",
