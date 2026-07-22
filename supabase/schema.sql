@@ -228,20 +228,38 @@ $$;
 
 -- =====================================================================
 -- REGRA DE NEGÓCIO: cálculo da etapa atual
--- (portada do etapa-calculator do sistema anterior — a data de aprovação
---  mais avançada preenchida define a etapa)
+-- A etapa atual é a etapa MAIS AVANÇADA que tenha qualquer data
+-- preenchida ("de trás para frente") — ex.: qualquer data de protótipo
+-- preenchida coloca a demanda em PROTOTIPO.
 -- =====================================================================
 
 create or replace function fn_calcula_etapa(d demandas) returns text
 language sql immutable as $$
   select case
     when d.status = 'ENCERRADO' then 'ENCERRADA'
-    when d.aprovacao_licenca_sf is not null or d.recebimento_fisico_sf is not null then 'SET_FINAL'
-    when d.aprovacao_cs is not null then 'SET_FINAL'
-    when d.aprovacao_prototipo is not null then 'COLOR_SAMPLE'
-    when d.aprovacao_dt is not null then 'PROTOTIPO'
-    when d.aprovacao_desenvolvimento is not null then 'DESENHO_TECNICO'
-    when d.aprovacao_mix is not null then 'DESENVOLVIMENTO'
+    when d.solicitacao_sf is not null
+      or d.recebimento_foto_sf is not null
+      or d.recebimento_fisico_sf is not null
+      or d.aprovacao_licenca_sf is not null
+      then 'SET_FINAL'
+    when d.solicitacao_cs is not null
+      or d.recebimento_foto_cs is not null
+      or d.recebimento_fisico_cs is not null
+      or d.aprovacao_cs is not null
+      or d.aprovacao_licenca_cs is not null
+      then 'COLOR_SAMPLE'
+    when d.solicitacao_prototipo is not null
+      or d.recebimento_prototipo is not null
+      or d.aprovacao_prototipo is not null
+      or d.aprovacao_licenca_proto is not null
+      then 'PROTOTIPO'
+    when d.recebimento_dt is not null
+      or d.aprovacao_dt is not null
+      then 'DESENHO_TECNICO'
+    when d.desenvolvimento is not null
+      or d.aprovacao_desenvolvimento is not null
+      or d.envio_desenvolvimento is not null
+      then 'DESENVOLVIMENTO'
     else 'MIX'
   end;
 $$;

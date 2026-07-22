@@ -221,7 +221,7 @@ export default function ListaDemandas() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Lista de Demandas</h1>
             <p className="text-sm text-muted-foreground">
-              Desenvolvimento de produto — clique seleciona, Shift+clique intervalo, duplo clique edita
+              Desenvolvimento de produto — Ctrl+clique seleciona várias, Shift+clique intervalo, duplo clique edita
             </p>
           </div>
           {selecionadas.size >= 2 && editavel && (
@@ -339,10 +339,10 @@ export default function ListaDemandas() {
         selecionadas={selecionadas}
         onRowClick={(row, e, visiveis) => {
           setSelecionadas((s) => {
-            const n = new Set(s);
             // Shift+clique: seleciona o intervalo entre o último clique e a linha
             // atual, na ordem visível (com ordenação e filtros aplicados)
             if (e.shiftKey && ultimoClicado.current != null) {
+              const n = new Set(s);
               const i1 = visiveis.findIndex((v) => v.cd_demanda === ultimoClicado.current);
               const i2 = visiveis.findIndex((v) => v.cd_demanda === row.cd_demanda);
               if (i1 >= 0 && i2 >= 0) {
@@ -353,11 +353,18 @@ export default function ListaDemandas() {
                 return n;
               }
             }
-            // Clique simples: alterna a seleção da linha (marca/desmarca)
-            if (n.has(row.cd_demanda)) n.delete(row.cd_demanda);
-            else n.add(row.cd_demanda);
+            // Ctrl+clique (Cmd no Mac): adiciona/remove da seleção múltipla
+            if (e.ctrlKey || e.metaKey) {
+              const n = new Set(s);
+              if (n.has(row.cd_demanda)) n.delete(row.cd_demanda);
+              else n.add(row.cd_demanda);
+              ultimoClicado.current = row.cd_demanda;
+              return n;
+            }
+            // Clique simples: marca só esta linha (sem Ctrl não acumula seleção
+            // e portanto não abre a edição em massa); clicar de novo desmarca
             ultimoClicado.current = row.cd_demanda;
-            return n;
+            return s.size === 1 && s.has(row.cd_demanda) ? new Set<number>() : new Set([row.cd_demanda]);
           });
         }}
         onRowDoubleClick={(row) => {
